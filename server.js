@@ -4,12 +4,12 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// OAuth credentials
-const CLIENT_ID = 'VWuczQl6BV6RF43ATEqCxEhsZKSlwCmfp2KMfVU7Hts';
-const CLIENT_SECRET = 'KKJWbgDvNnjyYfSQbXLckt3o-I-t8oUK30f42fuuIVk';
-const REDIRECT_URI = 'http://localhost:3000/callback';
+// OAuth credentials (use environment variables in production)
+const CLIENT_ID = process.env.CLIENT_ID || 'VWuczQl6BV6RF43ATEqCxEhsZKSlwCmfp2KMfVU7Hts';
+const CLIENT_SECRET = process.env.CLIENT_SECRET || 'KKJWbgDvNnjyYfSQbXLckt3o-I-t8oUK30f42fuuIVk';
+const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:3000/callback';
 
 // File path for persistent storage
 const ACCOUNTS_FILE = path.join(__dirname, 'accounts.json');
