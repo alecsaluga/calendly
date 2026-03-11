@@ -1018,8 +1018,8 @@ app.get('/api/available-slots', async (req, res) => {
   console.log('Query params:', JSON.stringify(req.query));
   console.log('Connected accounts:', Object.keys(connectedAccounts));
 
-  const { email, date, from_date, eventType } = req.query;
-  const selectedDate = date || from_date; // Accept both 'date' and 'from_date'
+  const { email, date, from_date, to_date, eventType } = req.query;
+  const selectedDate = date || from_date; // Accept both 'date' and 'from_date' (to_date is ignored, we calculate end date)
 
   if (!email) {
     console.log('ERROR: Missing email parameter');
