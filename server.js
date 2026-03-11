@@ -501,6 +501,50 @@ app.get('/', async (req, res) => {
           padding: 40px;
         }
 
+        /* Manage Calendars */
+        .calendars-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .calendar-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          background: #f8fafc;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+        }
+        .calendar-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+        }
+        .calendar-email {
+          font-weight: 600;
+          color: #1a1a2e;
+        }
+        .calendar-name-sub {
+          font-size: 13px;
+          color: #64748b;
+        }
+        .btn-remove {
+          padding: 6px 12px;
+          background: white;
+          color: #dc2626;
+          border: 1px solid #fecaca;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-remove:hover {
+          background: #fef2f2;
+          border-color: #f87171;
+        }
+
         /* Empty State */
         .empty-state {
           text-align: center;
@@ -591,6 +635,26 @@ app.get('/', async (req, res) => {
                   Select a date, time, and duration to check availability across all calendars
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Manage Calendars Card -->
+          <div class="card">
+            <div class="card-title">Connected Calendars</div>
+            <div class="calendars-list">
+              ${connectedEmails.map((email, index) => `
+                <div class="calendar-item">
+                  <span class="calendar-dot" style="background: ${getCalendarColor(index)}"></span>
+                  <div class="calendar-info">
+                    <span class="calendar-email">${email}</span>
+                    <span class="calendar-name-sub">${connectedAccounts[email].name || ''}</span>
+                  </div>
+                  <form action="/api/calendars/remove" method="POST" style="margin: 0;" onsubmit="return confirm('Remove ${email}?')">
+                    <input type="hidden" name="email" value="${email}">
+                    <button type="submit" class="btn-remove">Remove</button>
+                  </form>
+                </div>
+              `).join('')}
             </div>
           </div>
 
@@ -767,6 +831,287 @@ app.get('/api/check-availability', async (req, res) => {
   }
 
   res.json({ results });
+});
+
+// API endpoint to get all connected calendars
+app.get('/api/calendars', (req, res) => {
+  const calendars = Object.entries(connectedAccounts).map(([email, account]) => ({
+    email,
+    name: account.name,
+    userUri: account.userUri
+  }));
+  res.json({ calendars });
+});
+
+// API endpoint to get event types (booking links) for all calendars
+app.get('/api/event-types', async (req, res) => {
+  const allEventTypes = [];
+
+  for (const [email, account] of Object.entries(connectedAccounts)) {
+    try {
+      const eventTypesResponse = await makeAuthenticatedRequest(email, (token) =>
+        axios.get(
+          `https://api.calendly.com/event_types?user=${encodeURIComponent(account.userUri)}&active=true`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+      );
+
+      const eventTypes = eventTypesResponse.data.collection || [];
+      eventTypes.forEach(et => {
+        allEventTypes.push({
+          calendar: email,
+          calendarName: account.name,
+          name: et.name,
+          description: et.description_plain || et.description_html || '',
+          duration: et.duration,
+          schedulingUrl: et.scheduling_url,
+          slug: et.slug,
+          active: et.active
+        });
+      });
+    } catch (error) {
+      console.error(`Error fetching event types for ${email}:`, error.message);
+    }
+  }
+
+  res.json({ eventTypes: allEventTypes });
+});
+
+// API endpoint to get scheduling link for a specific calendar
+app.get('/api/book', async (req, res) => {
+  const { email, eventType } = req.query;
+
+  if (!email) {
+    return res.status(400).json({
+      error: 'Missing email parameter',
+      usage: '/api/book?email=user@example.com&eventType=30-minute-meeting'
+    });
+  }
+
+  const account = connectedAccounts[email];
+  if (!account) {
+    return res.status(404).json({ error: 'Calendar not found' });
+  }
+
+  try {
+    const eventTypesResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(
+        `https://api.calendly.com/event_types?user=${encodeURIComponent(account.userUri)}&active=true`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    );
+
+    const eventTypes = eventTypesResponse.data.collection || [];
+
+    // If eventType specified, find matching one
+    if (eventType) {
+      const matching = eventTypes.find(et =>
+        et.slug === eventType ||
+        et.name.toLowerCase().includes(eventType.toLowerCase())
+      );
+
+      if (matching) {
+        return res.json({
+          calendar: email,
+          eventType: matching.name,
+          duration: matching.duration,
+          schedulingUrl: matching.scheduling_url,
+          message: 'Direct user to this URL to book an appointment'
+        });
+      } else {
+        return res.status(404).json({
+          error: 'Event type not found',
+          availableTypes: eventTypes.map(et => ({ name: et.name, slug: et.slug }))
+        });
+      }
+    }
+
+    // Return all event types for this calendar
+    res.json({
+      calendar: email,
+      eventTypes: eventTypes.map(et => ({
+        name: et.name,
+        slug: et.slug,
+        duration: et.duration,
+        schedulingUrl: et.scheduling_url
+      }))
+    });
+  } catch (error) {
+    console.error(`Error fetching event types for ${email}:`, error.message);
+    res.status(500).json({ error: 'Failed to fetch event types' });
+  }
+});
+
+// API endpoint to remove a calendar
+app.delete('/api/calendars/:email', (req, res) => {
+  const email = decodeURIComponent(req.params.email);
+
+  if (!connectedAccounts[email]) {
+    return res.status(404).json({ error: 'Calendar not found' });
+  }
+
+  delete connectedAccounts[email];
+  saveAccounts();
+
+  console.log(`Removed calendar: ${email}`);
+  res.json({ success: true, message: `Removed ${email}` });
+});
+
+// POST endpoint to remove calendar (for forms that don't support DELETE)
+app.post('/api/calendars/remove', express.urlencoded({ extended: true }), (req, res) => {
+  const email = req.body.email;
+
+  if (!email || !connectedAccounts[email]) {
+    return res.status(404).json({ error: 'Calendar not found' });
+  }
+
+  delete connectedAccounts[email];
+  saveAccounts();
+
+  console.log(`Removed calendar: ${email}`);
+  res.redirect('/');
+});
+
+// API endpoint to get available time slots for booking
+app.get('/api/available-slots', async (req, res) => {
+  const { email, date, eventType } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Missing email parameter' });
+  }
+
+  const account = connectedAccounts[email];
+  if (!account) {
+    return res.status(404).json({ error: 'Calendar not found' });
+  }
+
+  try {
+    // Get event types first
+    const eventTypesResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(
+        `https://api.calendly.com/event_types?user=${encodeURIComponent(account.userUri)}&active=true`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    );
+
+    const eventTypes = eventTypesResponse.data.collection || [];
+    let targetEventType = eventTypes[0]; // Default to first
+
+    if (eventType) {
+      targetEventType = eventTypes.find(et =>
+        et.slug === eventType ||
+        et.name.toLowerCase().includes(eventType.toLowerCase())
+      ) || targetEventType;
+    }
+
+    if (!targetEventType) {
+      return res.status(404).json({ error: 'No event types found' });
+    }
+
+    // Get available times for this event type
+    const startDate = date || new Date().toISOString().split('T')[0];
+    const endDate = new Date(new Date(startDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const availabilityResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(
+        `https://api.calendly.com/event_type_available_times?event_type=${encodeURIComponent(targetEventType.uri)}&start_time=${startDate}T00:00:00Z&end_time=${endDate}T23:59:59Z`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    );
+
+    const slots = availabilityResponse.data.collection || [];
+
+    res.json({
+      calendar: email,
+      eventType: targetEventType.name,
+      eventTypeUri: targetEventType.uri,
+      duration: targetEventType.duration,
+      availableSlots: slots.map(slot => ({
+        startTime: slot.start_time,
+        status: slot.status
+      }))
+    });
+  } catch (error) {
+    console.error(`Error fetching available slots for ${email}:`, error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to fetch available slots', details: error.response?.data });
+  }
+});
+
+// POST endpoint to create a booking (programmatic scheduling)
+app.post('/api/book', express.json(), async (req, res) => {
+  const { email, eventType, startTime, inviteeName, inviteeEmail } = req.body;
+
+  if (!email || !startTime || !inviteeName || !inviteeEmail) {
+    return res.status(400).json({
+      error: 'Missing required parameters',
+      required: {
+        email: 'Calendar owner email',
+        startTime: 'ISO 8601 datetime (e.g., 2026-03-12T14:00:00Z)',
+        inviteeName: 'Name of person booking',
+        inviteeEmail: 'Email of person booking'
+      },
+      optional: {
+        eventType: 'Event type slug or name (defaults to first available)'
+      }
+    });
+  }
+
+  const account = connectedAccounts[email];
+  if (!account) {
+    return res.status(404).json({ error: 'Calendar not found' });
+  }
+
+  try {
+    // Get event types
+    const eventTypesResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(
+        `https://api.calendly.com/event_types?user=${encodeURIComponent(account.userUri)}&active=true`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    );
+
+    const eventTypes = eventTypesResponse.data.collection || [];
+    let targetEventType = eventTypes[0];
+
+    if (eventType) {
+      targetEventType = eventTypes.find(et =>
+        et.slug === eventType ||
+        et.name.toLowerCase().includes(eventType.toLowerCase())
+      ) || targetEventType;
+    }
+
+    if (!targetEventType) {
+      return res.status(404).json({ error: 'No event types found' });
+    }
+
+    // Create the booking using Calendly's Scheduling API
+    const bookingResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.post(
+        'https://api.calendly.com/scheduled_events',
+        {
+          event_type: targetEventType.uri,
+          start_time: startTime,
+          invitee: {
+            name: inviteeName,
+            email: inviteeEmail
+          }
+        },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      )
+    );
+
+    res.json({
+      success: true,
+      message: 'Booking created successfully',
+      booking: bookingResponse.data
+    });
+  } catch (error) {
+    console.error(`Error creating booking for ${email}:`, error.response?.data || error.message);
+    res.status(500).json({
+      error: 'Failed to create booking',
+      details: error.response?.data || error.message
+    });
+  }
 });
 
 // Redirect to Calendly OAuth authorization
