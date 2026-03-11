@@ -1014,15 +1014,21 @@ app.post('/api/calendars/remove', express.urlencoded({ extended: true }), (req, 
 
 // API endpoint to get available time slots for booking
 app.get('/api/available-slots', async (req, res) => {
+  console.log('=== /api/available-slots called ===');
+  console.log('Query params:', JSON.stringify(req.query));
+  console.log('Connected accounts:', Object.keys(connectedAccounts));
+
   const { email, date, from_date, eventType } = req.query;
   const selectedDate = date || from_date; // Accept both 'date' and 'from_date'
 
   if (!email) {
+    console.log('ERROR: Missing email parameter');
     return res.status(400).json({ error: 'Missing email parameter' });
   }
 
   const account = connectedAccounts[email];
   if (!account) {
+    console.log(`ERROR: Calendar not found for email: ${email}`);
     return res.status(404).json({ error: 'Calendar not found' });
   }
 
