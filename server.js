@@ -1084,10 +1084,10 @@ app.post('/api/book', express.json(), async (req, res) => {
       return res.status(404).json({ error: 'No event types found' });
     }
 
-    // Create the booking using Calendly's Scheduling API
+    // Create the booking using Calendly's Scheduling API (Create Event Invitee)
     const bookingResponse = await makeAuthenticatedRequest(email, (token) =>
       axios.post(
-        'https://api.calendly.com/scheduled_events',
+        'https://api.calendly.com/invitees',
         {
           event_type: targetEventType.uri,
           start_time: startTime,
