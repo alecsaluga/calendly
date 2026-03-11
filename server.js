@@ -1093,20 +1093,34 @@ app.post('/api/book', express.json(), async (req, res) => {
     );
 
     const eventTypeDetails = eventTypeDetailsResponse.data.resource;
-    const locationConfig = eventTypeDetails.location || {};
 
-    // Build location for the booking based on event type's configured location
-    let bookingLocation = {};
-    if (locationConfig.kind === 'google_conference') {
-      bookingLocation = { kind: 'google_conference' };
-    } else if (locationConfig.kind === 'zoom') {
-      bookingLocation = { kind: 'zoom' };
-    } else if (locationConfig.kind === 'microsoft_teams') {
-      bookingLocation = { kind: 'microsoft_teams' };
-    } else if (locationConfig.kind === 'phone_call') {
-      bookingLocation = { kind: 'outbound_call', location: '+1234567890' };
-    } else if (locationConfig.kind) {
-      bookingLocation = { kind: locationConfig.kind };
+    // Log location configs for debugging
+    console.log('Event type location configs:', JSON.stringify(eventTypeDetails.location_configurations, null, 2));
+
+    // Handle location_configurations (array of possible locations)
+    const locationConfigs = eventTypeDetails.location_configurations || [];
+    let bookingLocation = null;
+
+    if (locationConfigs.length > 0) {
+      // Use the first configured location
+      const firstLoc = locationConfigs[0];
+      if (firstLoc.kind === 'google_conference') {
+        bookingLocation = { kind: 'google_conference' };
+      } else if (firstLoc.kind === 'zoom') {
+        bookingLocation = { kind: 'zoom' };
+      } else if (firstLoc.kind === 'microsoft_teams_conference') {
+        bookingLocation = { kind: 'microsoft_teams_conference' };
+      } else if (firstLoc.kind === 'outbound_call') {
+        bookingLocation = { kind: 'outbound_call', location: '+1234567890' };
+      } else if (firstLoc.kind === 'inbound_call') {
+        bookingLocation = { kind: 'inbound_call', location: '+1234567890' };
+      } else if (firstLoc.kind === 'physical') {
+        bookingLocation = { kind: 'physical', location: firstLoc.location || 'TBD' };
+      } else if (firstLoc.kind === 'ask_invitee') {
+        bookingLocation = { kind: 'custom', location: 'Will be confirmed' };
+      } else if (firstLoc.kind) {
+        bookingLocation = { kind: firstLoc.kind };
+      }
     }
 
     // Create the booking using Calendly's Scheduling API (Create Event Invitee)
@@ -1121,7 +1135,7 @@ app.post('/api/book', express.json(), async (req, res) => {
     };
 
     // Only add location if configured
-    if (bookingLocation.kind) {
+    if (bookingLocation && bookingLocation.kind) {
       bookingPayload.location = bookingLocation;
     }
 
