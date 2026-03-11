@@ -1079,16 +1079,17 @@ app.get('/api/available-slots', async (req, res) => {
 
 // POST endpoint to create a booking (programmatic scheduling)
 app.post('/api/book', express.json(), async (req, res) => {
-  const { email, eventType, startTime, inviteeName, inviteeEmail, timezone } = req.body;
+  const { email, eventType, startTime, inviteeName, inviteeEmail, timezone, phone } = req.body;
 
-  if (!email || !startTime || !inviteeName || !inviteeEmail) {
+  if (!email || !startTime || !inviteeName || !inviteeEmail || !phone) {
     return res.status(400).json({
       error: 'Missing required parameters',
       required: {
         email: 'Calendar owner email',
         startTime: 'ISO 8601 datetime (e.g., 2026-03-12T14:00:00Z)',
         inviteeName: 'Name of person booking',
-        inviteeEmail: 'Email of person booking'
+        inviteeEmail: 'Email of person booking',
+        phone: 'Phone number in E.164 format (e.g., +14126186060)'
       },
       optional: {
         eventType: 'Event type slug or name (defaults to first available)',
@@ -1127,42 +1128,6 @@ app.post('/api/book', express.json(), async (req, res) => {
       return res.status(404).json({ error: 'No event types found' });
     }
 
-    // Get event type details to find location configuration
-    const eventTypeDetailsResponse = await makeAuthenticatedRequest(email, (token) =>
-      axios.get(targetEventType.uri, { headers: { Authorization: `Bearer ${token}` } })
-    );
-
-    const eventTypeDetails = eventTypeDetailsResponse.data.resource;
-
-    // Log location configs for debugging
-    console.log('Event type location configs:', JSON.stringify(eventTypeDetails.location_configurations, null, 2));
-
-    // Handle location_configurations (array of possible locations)
-    const locationConfigs = eventTypeDetails.location_configurations || [];
-    let bookingLocation = null;
-
-    if (locationConfigs.length > 0) {
-      // Use the first configured location
-      const firstLoc = locationConfigs[0];
-      if (firstLoc.kind === 'google_conference') {
-        bookingLocation = { kind: 'google_conference' };
-      } else if (firstLoc.kind === 'zoom') {
-        bookingLocation = { kind: 'zoom' };
-      } else if (firstLoc.kind === 'microsoft_teams_conference') {
-        bookingLocation = { kind: 'microsoft_teams_conference' };
-      } else if (firstLoc.kind === 'outbound_call') {
-        bookingLocation = { kind: 'outbound_call', location: '+1234567890' };
-      } else if (firstLoc.kind === 'inbound_call') {
-        bookingLocation = { kind: 'inbound_call', location: '+1234567890' };
-      } else if (firstLoc.kind === 'physical') {
-        bookingLocation = { kind: 'physical', location: firstLoc.location || 'TBD' };
-      } else if (firstLoc.kind === 'ask_invitee') {
-        bookingLocation = { kind: 'custom', location: 'Will be confirmed' };
-      } else if (firstLoc.kind) {
-        bookingLocation = { kind: firstLoc.kind };
-      }
-    }
-
     // Create the booking using Calendly's Scheduling API (Create Event Invitee)
     const bookingPayload = {
       event_type: targetEventType.uri,
@@ -1171,13 +1136,12 @@ app.post('/api/book', express.json(), async (req, res) => {
         name: inviteeName,
         email: inviteeEmail,
         timezone: inviteeTimezone
+      },
+      location: {
+        kind: 'outbound_call',
+        location: phone
       }
     };
-
-    // Only add location if configured
-    if (bookingLocation && bookingLocation.kind) {
-      bookingPayload.location = bookingLocation;
-    }
 
     const bookingResponse = await makeAuthenticatedRequest(email, (token) =>
       axios.post(
