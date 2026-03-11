@@ -1039,7 +1039,7 @@ app.get('/api/available-slots', async (req, res) => {
 
 // POST endpoint to create a booking (programmatic scheduling)
 app.post('/api/book', express.json(), async (req, res) => {
-  const { email, eventType, startTime, inviteeName, inviteeEmail } = req.body;
+  const { email, eventType, startTime, inviteeName, inviteeEmail, timezone } = req.body;
 
   if (!email || !startTime || !inviteeName || !inviteeEmail) {
     return res.status(400).json({
@@ -1051,10 +1051,13 @@ app.post('/api/book', express.json(), async (req, res) => {
         inviteeEmail: 'Email of person booking'
       },
       optional: {
-        eventType: 'Event type slug or name (defaults to first available)'
+        eventType: 'Event type slug or name (defaults to first available)',
+        timezone: 'Invitee timezone (defaults to America/Los_Angeles)'
       }
     });
   }
+
+  const inviteeTimezone = timezone || 'America/Los_Angeles';
 
   const account = connectedAccounts[email];
   if (!account) {
@@ -1093,7 +1096,8 @@ app.post('/api/book', express.json(), async (req, res) => {
           start_time: startTime,
           invitee: {
             name: inviteeName,
-            email: inviteeEmail
+            email: inviteeEmail,
+            timezone: inviteeTimezone
           }
         },
         { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
