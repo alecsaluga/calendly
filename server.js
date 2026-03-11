@@ -1014,7 +1014,8 @@ app.post('/api/calendars/remove', express.urlencoded({ extended: true }), (req, 
 
 // API endpoint to get available time slots for booking
 app.get('/api/available-slots', async (req, res) => {
-  const { email, date, eventType } = req.query;
+  const { email, date, from_date, eventType } = req.query;
+  const selectedDate = date || from_date; // Accept both 'date' and 'from_date'
 
   if (!email) {
     return res.status(400).json({ error: 'Missing email parameter' });
@@ -1049,7 +1050,7 @@ app.get('/api/available-slots', async (req, res) => {
     }
 
     // Get available times for this event type (max 7 days per Calendly API)
-    const startDate = date || new Date().toISOString().split('T')[0];
+    const startDate = selectedDate || new Date().toISOString().split('T')[0];
     const endDate = new Date(new Date(startDate).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     const availabilityResponse = await makeAuthenticatedRequest(email, (token) =>
