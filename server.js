@@ -1087,19 +1087,48 @@ app.post('/api/book', express.json(), async (req, res) => {
       return res.status(404).json({ error: 'No event types found' });
     }
 
+    // Get event type details to find location configuration
+    const eventTypeDetailsResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(targetEventType.uri, { headers: { Authorization: `Bearer ${token}` } })
+    );
+
+    const eventTypeDetails = eventTypeDetailsResponse.data.resource;
+    const locationConfig = eventTypeDetails.location || {};
+
+    // Build location for the booking based on event type's configured location
+    let bookingLocation = {};
+    if (locationConfig.kind === 'google_conference') {
+      bookingLocation = { kind: 'google_conference' };
+    } else if (locationConfig.kind === 'zoom') {
+      bookingLocation = { kind: 'zoom' };
+    } else if (locationConfig.kind === 'microsoft_teams') {
+      bookingLocation = { kind: 'microsoft_teams' };
+    } else if (locationConfig.kind === 'phone_call') {
+      bookingLocation = { kind: 'outbound_call', location: '+1234567890' };
+    } else if (locationConfig.kind) {
+      bookingLocation = { kind: locationConfig.kind };
+    }
+
     // Create the booking using Calendly's Scheduling API (Create Event Invitee)
+    const bookingPayload = {
+      event_type: targetEventType.uri,
+      start_time: startTime,
+      invitee: {
+        name: inviteeName,
+        email: inviteeEmail,
+        timezone: inviteeTimezone
+      }
+    };
+
+    // Only add location if configured
+    if (bookingLocation.kind) {
+      bookingPayload.location = bookingLocation;
+    }
+
     const bookingResponse = await makeAuthenticatedRequest(email, (token) =>
       axios.post(
         'https://api.calendly.com/invitees',
-        {
-          event_type: targetEventType.uri,
-          start_time: startTime,
-          invitee: {
-            name: inviteeName,
-            email: inviteeEmail,
-            timezone: inviteeTimezone
-          }
-        },
+        bookingPayload,
         { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
       )
     );
