@@ -1008,9 +1008,9 @@ app.get('/api/available-slots', async (req, res) => {
       return res.status(404).json({ error: 'No event types found' });
     }
 
-    // Get available times for this event type
+    // Get available times for this event type (max 7 days per Calendly API)
     const startDate = date || new Date().toISOString().split('T')[0];
-    const endDate = new Date(new Date(startDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const endDate = new Date(new Date(startDate).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     const availabilityResponse = await makeAuthenticatedRequest(email, (token) =>
       axios.get(
