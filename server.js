@@ -843,6 +843,46 @@ app.get('/api/calendars', (req, res) => {
   res.json({ calendars });
 });
 
+// Debug endpoint to see event type details including location configs
+app.get('/api/debug/event-type', async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Missing email parameter' });
+  }
+
+  const account = connectedAccounts[email];
+  if (!account) {
+    return res.status(404).json({ error: 'Calendar not found' });
+  }
+
+  try {
+    const eventTypesResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(
+        `https://api.calendly.com/event_types?user=${encodeURIComponent(account.userUri)}&active=true`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    );
+
+    const eventTypes = eventTypesResponse.data.collection || [];
+    if (eventTypes.length === 0) {
+      return res.json({ error: 'No event types found' });
+    }
+
+    // Get full details of the first event type
+    const eventTypeDetailsResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(eventTypes[0].uri, { headers: { Authorization: `Bearer ${token}` } })
+    );
+
+    res.json({
+      eventType: eventTypes[0],
+      fullDetails: eventTypeDetailsResponse.data.resource
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message, details: error.response?.data });
+  }
+});
+
 // API endpoint to get event types (booking links) for all calendars
 app.get('/api/event-types', async (req, res) => {
   const allEventTypes = [];
