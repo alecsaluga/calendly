@@ -1084,6 +1084,76 @@ app.get('/api/available-slots', async (req, res) => {
   }
 });
 
+// POST endpoint for available slots (for MLS compatibility - same logic as GET)
+app.post('/api/available-slots', express.json(), async (req, res) => {
+  console.log('=== POST /api/available-slots called ===');
+  console.log('Body:', JSON.stringify(req.body));
+  console.log('Connected accounts:', Object.keys(connectedAccounts));
+
+  const { email, from_date, to_date, date, eventType } = req.body;
+  const selectedDate = from_date || date;
+
+  if (!email) {
+    console.log('ERROR: Missing email parameter');
+    return res.status(400).json({ error: 'Missing email parameter' });
+  }
+
+  const account = connectedAccounts[email];
+  if (!account) {
+    console.log(`ERROR: Calendar not found for email: ${email}`);
+    return res.status(404).json({ error: 'Calendar not found' });
+  }
+
+  try {
+    const eventTypesResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(
+        `https://api.calendly.com/event_types?user=${encodeURIComponent(account.userUri)}&active=true`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    );
+
+    const eventTypes = eventTypesResponse.data.collection || [];
+    let targetEventType = eventTypes[0];
+
+    if (eventType) {
+      targetEventType = eventTypes.find(et =>
+        et.slug === eventType ||
+        et.name.toLowerCase().includes(eventType.toLowerCase())
+      ) || targetEventType;
+    }
+
+    if (!targetEventType) {
+      return res.status(404).json({ error: 'No event types found' });
+    }
+
+    const startDate = selectedDate || new Date().toISOString().split('T')[0];
+    const endDate = new Date(new Date(startDate).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const availabilityResponse = await makeAuthenticatedRequest(email, (token) =>
+      axios.get(
+        `https://api.calendly.com/event_type_available_times?event_type=${encodeURIComponent(targetEventType.uri)}&start_time=${startDate}T00:00:00Z&end_time=${endDate}T23:59:59Z`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    );
+
+    const slots = availabilityResponse.data.collection || [];
+
+    res.json({
+      calendar: email,
+      eventType: targetEventType.name,
+      eventTypeUri: targetEventType.uri,
+      duration: targetEventType.duration,
+      availableSlots: slots.map(slot => ({
+        startTime: slot.start_time,
+        status: slot.status
+      }))
+    });
+  } catch (error) {
+    console.error(`Error fetching available slots for ${email}:`, error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to fetch available slots', details: error.response?.data });
+  }
+});
+
 // POST endpoint to create a booking (programmatic scheduling)
 app.post('/api/book', express.json(), async (req, res) => {
   const { email, eventType, startTime, inviteeName, inviteeEmail, timezone, phone } = req.body;
